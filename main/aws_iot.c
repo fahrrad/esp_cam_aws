@@ -31,6 +31,7 @@
 
 #include "mqtt_client.h"
 
+#include "esp_camera.h"
 
 
 #define I2C_PORT 0
