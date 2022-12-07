@@ -28,7 +28,7 @@
 #include "lwip/sockets.h"
 #include "lwip/dns.h"
 #include "lwip/netdb.h"
-
+#include "mbedtls/base64.h"
 #include "mqtt_client.h"
 
 
@@ -76,7 +76,7 @@ static camera_config_t camera_config = {
     .ledc_timer = LEDC_TIMER_0,
     .ledc_channel = LEDC_CHANNEL_0,
 
-    .pixel_format = PIXFORMAT_RGB565,//YUV422,GRAYSCALE,RGB565,JPEG
+    .pixel_format = PIXFORMAT_GRAYSCALE,//YUV422,GRAYSCALE,RGB565,JPEG
     .frame_size = FRAMESIZE_96X96,//QQVGA-UXGA, For ESP32, do not use sizes above QVGA when not JPEG. The performance of the ESP32-S series has improved a lot, but JPEG mode always gives better frame rates.
 
     .fb_location = CAMERA_FB_IN_DRAM, // No PSRAM
@@ -114,9 +114,17 @@ void upload_image(camera_fb_t * fb){
     uint8_t * buf = NULL;
     size_t buf_len = 0;
     bool converted = frame2bmp(fb, &buf, &buf_len);
+    ESP_LOGI(TAG, "BMP conversion success. Length of the output buffer: %d", buf_len);
+
+    unsigned char output[buf_len];
+    size_t outlen;
+
+    mbedtls_base64_encode(output, buf_len, &outlen, (unsigned char *) buf, strlen((char *)buf));
+    ESP_LOGI(TAG, "BMP length: %d. b64 length: %d", strlen((char *)buf), outlen );
+    esp_mqtt_client_publish(client, "/device/photos", (char *) output, outlen, 0, 0);
 
     // if(converted){
-    //     esp_mqtt_client_publish(client, "/device/photos", (char *) buf, &buf_len, 0, 0);
+    //     esp_mqtt_client_publish(client, "/device/photos", output, outlen, 0, 0);
     // }else{
     //     ESP_LOGE(TAG, "Camera Init Failed");
     // }
