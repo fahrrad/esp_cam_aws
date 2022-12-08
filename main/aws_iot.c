@@ -131,6 +131,8 @@ void upload_image_bmp(camera_fb_t * fb){
         } else {
             ESP_LOGE(TAG, "BMP not encoded! %d", encoded);
         }
+
+        free(buf);
     } else {
         ESP_LOGE(TAG, "conversion failed!");
     }
