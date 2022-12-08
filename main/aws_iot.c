@@ -72,11 +72,11 @@ static camera_config_t camera_config = {
     .pin_href = CAM_PIN_HREF,
     .pin_pclk = CAM_PIN_PCLK,
 
-    .xclk_freq_hz = 10000000,//EXPERIMENTAL: Set to 16MHz on ESP32-S2 or ESP32-S3 to enable EDMA mode
+    .xclk_freq_hz = 20000000,//EXPERIMENTAL: Set to 16MHz on ESP32-S2 or ESP32-S3 to enable EDMA mode
     .ledc_timer = LEDC_TIMER_0,
     .ledc_channel = LEDC_CHANNEL_0,
 
-    .pixel_format = PIXFORMAT_GRAYSCALE,//YUV422,GRAYSCALE,RGB565,JPEG
+    .pixel_format = PIXFORMAT_RGB565,//YUV422,GRAYSCALE,RGB565,JPEG
     .frame_size = FRAMESIZE_96X96,//QQVGA-UXGA, For ESP32, do not use sizes above QVGA when not JPEG. The performance of the ESP32-S series has improved a lot, but JPEG mode always gives better frame rates.
 
     .fb_location = CAMERA_FB_IN_DRAM, // No PSRAM
@@ -97,6 +97,8 @@ extern const uint8_t client_key_pem_end[] asm("_binary_client_key_end");
 extern const uint8_t server_cert_pem_start[] asm("_binary_AmazonRootCA1_pem_start");
 extern const uint8_t server_cert_pem_end[] asm("_binary_AmazonRootCA1_pem_end");
 
+unsigned char *img_b64;
+
 // Client object for MQTT connection
 esp_mqtt_client_handle_t client;
 TaskHandle_t xHandle = NULL;
@@ -108,26 +110,30 @@ static void log_error_if_nonzero(const char *message, int error_code)
     }
 }
 
-void upload_image(camera_fb_t * fb){
-    ESP_LOGI(TAG, "About to upload image");
+void upload_image_jpg(camera_fb_t * fb){
+
+}
+
+void upload_image_bmp(camera_fb_t * fb){
+    ESP_LOGI(TAG, "About to upload image of len: %d", fb->len);
 
     uint8_t * buf = NULL;
     size_t buf_len = 0;
     bool converted = frame2bmp(fb, &buf, &buf_len);
-    ESP_LOGI(TAG, "BMP conversion success. Length of the output buffer: %d", buf_len);
 
-    unsigned char output[buf_len];
-    size_t outlen;
-
-    mbedtls_base64_encode(output, buf_len, &outlen, (unsigned char *) buf, strlen((char *)buf));
-    ESP_LOGI(TAG, "BMP length: %d. b64 length: %d", strlen((char *)buf), outlen );
-    esp_mqtt_client_publish(client, "/device/photos", (char *) output, outlen, 0, 0);
-
-    // if(converted){
-    //     esp_mqtt_client_publish(client, "/device/photos", output, outlen, 0, 0);
-    // }else{
-    //     ESP_LOGE(TAG, "Camera Init Failed");
-    // }
+    if(converted){
+        size_t outlen;
+        int encoded = mbedtls_base64_encode(img_b64, 60000, &outlen, (unsigned char *) buf, buf_len);
+        
+        if(encoded == 0) {
+            ESP_LOGI(TAG, "BMP encoded. Size: %d", outlen);
+            esp_mqtt_client_publish(client, "/device/photos", (char *) img_b64, outlen, 0, 0);
+        } else {
+            ESP_LOGE(TAG, "BMP not encoded! %d", encoded);
+        }
+    } else {
+        ESP_LOGE(TAG, "conversion failed!");
+    }
 }
 
 
@@ -139,7 +145,6 @@ esp_err_t camera_init(){
         ESP_LOGE(TAG, "Camera Init Failed");
         return err;
     }
-
     return ESP_OK;
 }
 
@@ -151,7 +156,7 @@ esp_err_t camera_capture(){
         return ESP_FAIL;
     }
     //replace this with your own function
-    upload_image(fb);
+    upload_image_bmp(fb);
   
     //return the frame buffer back to the driver for reuse
     esp_camera_fb_return(fb);
@@ -183,9 +188,7 @@ void heartBeatTask(void *pvParameters)
 {
     while (1)
     {
-        camera_capture();
         esp_mqtt_client_publish(client, "/device/heartbeat", "{\"message\": \"ping\"}", 0, 0, 0);
-
         vTaskDelay(pdMS_TO_TICKS(5000));
     }
 }
@@ -210,8 +213,13 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
         esp_mqtt_client_publish(client, "/device/messages", "Hello, Mons!", 0, 0, 0);
-        camera_init();
-        // Only start this task once (so not on reconnect)
+        camera_capture();
+        
+        esp_mqtt_client_subscribe(client, "/dt/mons/snap", 0);
+        
+        // This is the heartbeat task that will run in the background
+        // It can only be started once
+        // 
         if (xHandle == NULL){
             xTaskCreate(heartBeatTask, "heartbeat", configMINIMAL_STACK_SIZE * 8, NULL, 5, &xHandle);
             ESP_LOGI(TAG, "Task created!");
@@ -222,7 +230,6 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
         break;
-
     case MQTT_EVENT_SUBSCRIBED:
         ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
         break;
@@ -233,6 +240,13 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         ESP_LOGI(TAG, "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
         break;
     case MQTT_EVENT_DATA:
+        ESP_LOGI(TAG, "MQTT_EVENT_DATA");
+        if(strcmp(event->topic, "/dt/mons/snap")){
+            printf("Snap!\n");
+            camera_capture();
+        }
+        printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
+        printf("DATA=%.*s\r\n", event->data_len, event->data);
         break;
     case MQTT_EVENT_ERROR:
         ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
@@ -272,6 +286,7 @@ static void mqtt_app_start(void)
 
 void app_main(void)
 {
+    img_b64 = malloc (60000 * sizeof(char));
     ESP_LOGI(TAG, "[APP] Startup..");
     ESP_LOGI(TAG, "[APP] Free memory: %lu bytes", esp_get_free_heap_size());
     ESP_LOGI(TAG, "[APP] IDF version: %s", esp_get_idf_version());
@@ -285,6 +300,7 @@ void app_main(void)
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
+    ESP_ERROR_CHECK(camera_init());
 
     /* This helper function configures Wi-Fi or Ethernet, as selected in menuconfig.
      * Read "Establishing Wi-Fi or Ethernet Connection" section in
