@@ -31,8 +31,10 @@
 #include "mbedtls/base64.h"
 #include "mqtt_client.h"
 
-
 #include "esp_camera.h"
+
+// Established as the size of a grayscale bmp of 96x96
+#define B64_BUFFER_SIZE 13729
 
 #define CAM_PIN_PWDN    32 
 #define CAM_PIN_RESET   -1 //software reset will be performed
@@ -97,11 +99,14 @@ extern const uint8_t client_key_pem_end[] asm("_binary_client_key_end");
 extern const uint8_t server_cert_pem_start[] asm("_binary_AmazonRootCA1_pem_start");
 extern const uint8_t server_cert_pem_end[] asm("_binary_AmazonRootCA1_pem_end");
 
+// buffer for base64-encoded version of the BMP that will be send to AWS IoT
 unsigned char *img_b64;
 
 // Client object for MQTT connection
 esp_mqtt_client_handle_t client;
-TaskHandle_t xHandle = NULL;
+
+// Hearthbeat task handler
+TaskHandle_t heartBeatTaskHandle = NULL;
 
 static void log_error_if_nonzero(const char *message, int error_code)
 {
@@ -110,9 +115,6 @@ static void log_error_if_nonzero(const char *message, int error_code)
     }
 }
 
-void upload_image_jpg(camera_fb_t * fb){
-
-}
 
 void upload_image_bmp(camera_fb_t * fb){
     ESP_LOGI(TAG, "About to upload image of len: %d", fb->len);
@@ -123,7 +125,7 @@ void upload_image_bmp(camera_fb_t * fb){
 
     if(converted){
         size_t outlen;
-        int encoded = mbedtls_base64_encode(img_b64, 60000, &outlen, (unsigned char *) buf, buf_len);
+        int encoded = mbedtls_base64_encode(img_b64, B64_BUFFER_SIZE, &outlen, (unsigned char *) buf, buf_len);
         
         if(encoded == 0) {
             ESP_LOGI(TAG, "BMP encoded. Size: %d", outlen);
@@ -132,13 +134,17 @@ void upload_image_bmp(camera_fb_t * fb){
             ESP_LOGE(TAG, "BMP not encoded! %d", encoded);
         }
 
-        free(buf);
+        // free memory allocated by frame2bmp
+        if(buf != NULL){
+            free(buf);
+        } 
     } else {
         ESP_LOGE(TAG, "conversion failed!");
     }
 }
 
-
+/// @brief Starts the camera
+/// @return 
 esp_err_t camera_init(){
 
     //initialize the camera
@@ -150,6 +156,8 @@ esp_err_t camera_init(){
     return ESP_OK;
 }
 
+/// @brief Take a picture and uploads it
+/// @return 
 esp_err_t camera_capture(){
     //acquire a frame
     camera_fb_t * fb = esp_camera_fb_get();
@@ -165,36 +173,16 @@ esp_err_t camera_capture(){
     return ESP_OK;
 }
 
-esp_err_t snap(){
-    camera_fb_t * fb = NULL;
-
-    fb = esp_camera_fb_get();
-    if (!fb) {
-        ESP_LOGE(TAG, "Camera capture failed");
-        return ESP_FAIL;
-    }
-
-    uint8_t * buf = NULL;
-    size_t buf_len = 0;
-    bool converted = frame2bmp(fb, &buf, &buf_len);
-    esp_camera_fb_return(fb);
-    if(!converted){
-        ESP_LOGE(TAG, "BMP conversion failed");
-        return ESP_FAIL;
-    }
-
-    return ESP_OK;
-}
-
+/// @brief sends a heartbeat message every 5 min
+/// @param pvParameters 
 void heartBeatTask(void *pvParameters)
 {
     while (1)
     {
-        esp_mqtt_client_publish(client, "/device/heartbeat", "{\"message\": \"ping\"}", 0, 0, 0);
+        esp_mqtt_client_publish(client, "/dt/mons/heartbeat", "{\"message\": \"ping\"}", 0, 0, 0);
         vTaskDelay(pdMS_TO_TICKS(5000));
     }
 }
-
 
 /*
  * @brief Event handler registered to receive MQTT events
@@ -214,16 +202,16 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     switch ((esp_mqtt_event_id_t)event_id) {
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
-        esp_mqtt_client_publish(client, "/device/messages", "Hello, Mons!", 0, 0, 0);
+        esp_mqtt_client_publish(client, "/dt/mons/messages", "Hello, Mons!", 0, 0, 0);
         camera_capture();
         
-        esp_mqtt_client_subscribe(client, "/dt/mons/snap", 0);
+        esp_mqtt_client_subscribe(client, "cmd/mons/snap", 0);
         
         // This is the heartbeat task that will run in the background
         // It can only be started once
         // 
-        if (xHandle == NULL){
-            xTaskCreate(heartBeatTask, "heartbeat", configMINIMAL_STACK_SIZE * 8, NULL, 5, &xHandle);
+        if (heartBeatTaskHandle == NULL){
+            xTaskCreate(heartBeatTask, "heartbeat", configMINIMAL_STACK_SIZE * 8, NULL, 5, &heartBeatTaskHandle);
             ESP_LOGI(TAG, "Task created!");
         }else{
             ESP_LOGI(TAG, "Task was already created, probably a reconnect");
@@ -243,7 +231,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         break;
     case MQTT_EVENT_DATA:
         ESP_LOGI(TAG, "MQTT_EVENT_DATA");
-        if(strcmp(event->topic, "/dt/mons/snap")){
+        if(strcmp(event->topic, "cmd/mons/snap")){
             printf("Snap!\n");
             camera_capture();
         }
@@ -257,7 +245,6 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             log_error_if_nonzero("reported from tls stack", event->error_handle->esp_tls_stack_err);
             log_error_if_nonzero("captured as transport's socket errno",  event->error_handle->esp_transport_sock_errno);
             ESP_LOGI(TAG, "Last errno string (%s)", strerror(event->error_handle->esp_transport_sock_errno));
-
         }
         break;
     default:
@@ -288,7 +275,7 @@ static void mqtt_app_start(void)
 
 void app_main(void)
 {
-    img_b64 = malloc (60000 * sizeof(char));
+    img_b64 = malloc (B64_BUFFER_SIZE * sizeof(char));
     ESP_LOGI(TAG, "[APP] Startup..");
     ESP_LOGI(TAG, "[APP] Free memory: %lu bytes", esp_get_free_heap_size());
     ESP_LOGI(TAG, "[APP] IDF version: %s", esp_get_idf_version());
