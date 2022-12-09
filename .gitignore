@@ -13,7 +13,9 @@ _deps
 
 build/
 .vscode/
-keys/**
+
+keys/*key
+keys/*crt
 
 sdkconfig*
 protocol_examples_common/include/.DS_Store
