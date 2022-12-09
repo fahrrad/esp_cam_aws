@@ -48,7 +48,14 @@
 // Topic name for sending heartbeat signal
 #define TOPIC_NAME_HEARTHBEAT "dt/mons/heartbeat"
 
+// TAG is used for logging
+static const char *TAG = "MONS";
 
+// Heartbeats BPM
+#define HEARTBEAT_BPM 15
+#define HEARTBEAT_INTERVAL (60000 / HEARTBEAT_BPM)
+
+// Pin mapping between ESP32 and the camera on the board
 // ESP pin to camera pin mapping
 #define CAM_PIN_PWDN    32 
 #define CAM_PIN_RESET   -1 //software reset will be performed
@@ -101,8 +108,6 @@ static camera_config_t camera_config = {
     .fb_count = 1, //When jpeg mode is used, if fb_count more than one, the driver will work in continuous mode.
     .grab_mode = CAMERA_GRAB_WHEN_EMPTY//CAMERA_GRAB_LATEST. Sets when buffers should be filled
 };
-
-static const char *TAG = "MONS";
 
 // Certificates, see CMakeList.txt file to see how these get filled.
 // the client_crt file is called {certificate id}-certificate.pem.crt when downloading from IoT core console
@@ -192,17 +197,15 @@ esp_err_t camera_capture(){
     return ESP_OK;
 }
 
-/// @brief sends a heartbeat message every 5 min
+/// @brief sends a heartbeat message every 5 seconds
 /// @param pvParameters 
 void heartBeatTask(void *pvParameters)
 {
     while (1)
     {
-        
+        // TODO make sure this ends up in the frontend
         esp_mqtt_client_publish(client, TOPIC_NAME_HEARTHBEAT, "{\"message\": \"ping\"}", 0, 0, 0);
-        
-        // Wait 5s for the next beat
-        vTaskDelay(pdMS_TO_TICKS(5000));
+        vTaskDelay(pdMS_TO_TICKS(HEARTBEAT_INTERVAL));
     }
 }
 
@@ -210,6 +213,8 @@ void heartBeatTask(void *pvParameters)
  * @brief Event handler registered to receive MQTT events
  *
  *  This function is called by the MQTT client event loop.
+ * 
+ *  TODO 
  *
  * @param handler_args user data registered to the event.
  * @param base Event base for the handler(always MQTT Base in this example).
@@ -254,7 +259,6 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         ESP_LOGI(TAG, "MQTT_EVENT_DATA");
         if(strcmp(event->topic, TOPIC_NAME_AWS_CMD_SNAP)){
             printf("Snap!\n");
-            camera_capture();
         }
         printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
         printf("DATA=%.*s\r\n", event->data_len, event->data);
