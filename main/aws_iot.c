@@ -1,4 +1,4 @@
-/* Read INA3221 and publish to  AWS IoT example
+/* Read Camera and publish to AWS IoT 
 
    This example code is in the Public Domain (or CC0 licensed, at your option.)
 
@@ -102,7 +102,7 @@ static camera_config_t camera_config = {
     .grab_mode = CAMERA_GRAB_WHEN_EMPTY//CAMERA_GRAB_LATEST. Sets when buffers should be filled
 };
 
-static const char *TAG = "MQTTS_EXAMPLE";
+static const char *TAG = "MONS";
 
 // Certificates, see CMakeList.txt file to see how these get filled.
 // the client_crt file is called {certificate id}-certificate.pem.crt when downloading from IoT core console
@@ -198,7 +198,10 @@ void heartBeatTask(void *pvParameters)
 {
     while (1)
     {
+        
         esp_mqtt_client_publish(client, TOPIC_NAME_HEARTHBEAT, "{\"message\": \"ping\"}", 0, 0, 0);
+        
+        // Wait 5s for the next beat
         vTaskDelay(pdMS_TO_TICKS(5000));
     }
 }
@@ -222,7 +225,6 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
         esp_mqtt_client_publish(client, TOPIC_NAME_AWS_MESSSAGES, "Hello, Mons!", 0, 0, 0);
-        camera_capture();
         
         esp_mqtt_client_subscribe(client, TOPIC_NAME_AWS_CMD_SNAP, 0);
         
