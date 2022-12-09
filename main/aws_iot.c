@@ -49,7 +49,7 @@
 #define TOPIC_NAME_HEARTHBEAT "dt/mons/heartbeat"
 
 
-
+// ESP pin to camera pin mapping
 #define CAM_PIN_PWDN    32 
 #define CAM_PIN_RESET   -1 //software reset will be performed
 #define CAM_PIN_XCLK    0
