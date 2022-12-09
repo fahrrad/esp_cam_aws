@@ -36,6 +36,20 @@
 // Established as the size of a grayscale bmp of 96x96
 #define B64_BUFFER_SIZE 13729
 
+// Topic name for the communication to AWS
+#define TOPIC_NAME_AWS_MESSSAGES "dt/mons/messages"
+
+// Topic name for receiving command to take a picture
+#define TOPIC_NAME_AWS_CMD_SNAP "cmd/mons/snap"
+
+// Topic name for sending pictures from the device to AWS IoT
+#define TOPIC_NAME_AWS_PHOTOS "cmd/mons/snap/photo"
+
+// Topic name for sending heartbeat signal
+#define TOPIC_NAME_HEARTHBEAT "dt/mons/heartbeat"
+
+
+
 #define CAM_PIN_PWDN    32 
 #define CAM_PIN_RESET   -1 //software reset will be performed
 #define CAM_PIN_XCLK    0
@@ -88,18 +102,22 @@ static camera_config_t camera_config = {
     .grab_mode = CAMERA_GRAB_WHEN_EMPTY//CAMERA_GRAB_LATEST. Sets when buffers should be filled
 };
 
-
-
 static const char *TAG = "MQTTS_EXAMPLE";
 
+// Certificates, see CMakeList.txt file to see how these get filled.
+// the client_crt file is called {certificate id}-certificate.pem.crt when downloading from IoT core console
 extern const uint8_t client_cert_pem_start[] asm("_binary_client_crt_start");
 extern const uint8_t client_cert_pem_end[] asm("_binary_client_crt_end");
+
+// the client_key file is called {certificate id}-private.pem.key when downloading from IoT core console
 extern const uint8_t client_key_pem_start[] asm("_binary_client_key_start");
 extern const uint8_t client_key_pem_end[] asm("_binary_client_key_end");
+
+// The amazon root ca is called AmazonRootCA1.pem when downloading from the IoT core console
 extern const uint8_t server_cert_pem_start[] asm("_binary_AmazonRootCA1_pem_start");
 extern const uint8_t server_cert_pem_end[] asm("_binary_AmazonRootCA1_pem_end");
 
-// buffer for base64-encoded version of the BMP that will be send to AWS IoT
+// buffer for base64-encoded version of the BMP that will be send to AWS IoT core
 unsigned char *img_b64;
 
 // Client object for MQTT connection
@@ -115,7 +133,8 @@ static void log_error_if_nonzero(const char *message, int error_code)
     }
 }
 
-
+/// @brief Takes a camera framebuffer object, and converts the buffer into a BMP. Then, b64 encode that BMP and send it to an AWS IoT Topic
+/// @param fb camera framebuffer, than contains a foto
 void upload_image_bmp(camera_fb_t * fb){
     ESP_LOGI(TAG, "About to upload image of len: %d", fb->len);
 
@@ -129,7 +148,7 @@ void upload_image_bmp(camera_fb_t * fb){
         
         if(encoded == 0) {
             ESP_LOGI(TAG, "BMP encoded. Size: %d", outlen);
-            esp_mqtt_client_publish(client, "/device/photos", (char *) img_b64, outlen, 0, 0);
+            esp_mqtt_client_publish(client, TOPIC_NAME_AWS_PHOTOS, (char *) img_b64, outlen, 0, 0);
         } else {
             ESP_LOGE(TAG, "BMP not encoded! %d", encoded);
         }
@@ -179,7 +198,7 @@ void heartBeatTask(void *pvParameters)
 {
     while (1)
     {
-        esp_mqtt_client_publish(client, "/dt/mons/heartbeat", "{\"message\": \"ping\"}", 0, 0, 0);
+        esp_mqtt_client_publish(client, TOPIC_NAME_HEARTHBEAT, "{\"message\": \"ping\"}", 0, 0, 0);
         vTaskDelay(pdMS_TO_TICKS(5000));
     }
 }
@@ -202,10 +221,10 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     switch ((esp_mqtt_event_id_t)event_id) {
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
-        esp_mqtt_client_publish(client, "/dt/mons/messages", "Hello, Mons!", 0, 0, 0);
+        esp_mqtt_client_publish(client, TOPIC_NAME_AWS_MESSSAGES, "Hello, Mons!", 0, 0, 0);
         camera_capture();
         
-        esp_mqtt_client_subscribe(client, "cmd/mons/snap", 0);
+        esp_mqtt_client_subscribe(client, TOPIC_NAME_AWS_CMD_SNAP, 0);
         
         // This is the heartbeat task that will run in the background
         // It can only be started once
@@ -231,7 +250,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         break;
     case MQTT_EVENT_DATA:
         ESP_LOGI(TAG, "MQTT_EVENT_DATA");
-        if(strcmp(event->topic, "cmd/mons/snap")){
+        if(strcmp(event->topic, TOPIC_NAME_AWS_CMD_SNAP)){
             printf("Snap!\n");
             camera_capture();
         }
