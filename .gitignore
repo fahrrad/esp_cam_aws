@@ -1,0 +1,26 @@
+### CMake ###
+CMakeLists.txt.user
+CMakeCache.txt
+CMakeFiles
+CMakeScripts
+Testing
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps
+
+build/
+.vscode/
+
+keys/*key
+keys/*crt
+
+sdkconfig
+sdkconfig.old
+
+protocol_examples_common/include/.DS_Store
+.DS_Store
+
+.fake

@@ -1,0 +1,7 @@
+menu "AWS IoT"    
+    config EXAMPLE_AWS_IOT_URI
+        string "URI of the AWS IoT endpoint"
+        default "mqtts://fill-me-ats.iot.eu-central-1.amazonaws.com:8883"
+        help
+            URI, including protocol and port. Example: mqtts://sdfsdfsdfw-ats.iot.eu-central-1.amazonaws.com:8883.
+endmenu
