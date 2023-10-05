@@ -19,6 +19,8 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 
+#include "esp_mac.h"
+
 #include "protocol_examples_common.h"
 
 #include "freertos/FreeRTOS.h"
@@ -55,9 +57,6 @@ struct presigned_url_post_parameters {
 
 // Topic name for the communication to AWS
 #define TOPIC_NAME_AWS_MESSSAGES "dt/snap/messages"
-
-// Topic name for receiving command to take a picture
-#define TOPIC_NAME_AWS_CMD_SNAP "cmd/snap/start"
 
 // Topic that will receive a presigned URL to publish an image to 
 #define TOPIC_NAME_AWS_PRESIGNED_URL "cmd/snap/get-url/response"
@@ -150,6 +149,12 @@ extern const char server_cert_pem_end[] asm("_binary_AmazonRootCA1_pem_end");
 // Client object for MQTT connection
 esp_mqtt_client_handle_t client;
 
+// Device MAC address
+char MAC_ADDRESS[20];
+
+// Topic for listening to SNAP commands
+char TOPIC_NAME_AWS_CMD_SNAP[64];
+
 // Hearthbeat task handler
 TaskHandle_t heartBeatTaskHandle = NULL;
 
@@ -159,6 +164,16 @@ static void log_error_if_nonzero(const char *message, int error_code)
         ESP_LOGE(TAG, "Last error %s: 0x%x", message, error_code);
     }
 }
+
+
+void save_mac_address(char *mac_address) {
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_BASE);
+    
+    sprintf(mac_address, "%02X-%02X-%02X-%02X-%02X-%02X",
+            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
 
 void request_presigned_url() { 
     ESP_LOGI(TAG, "[MQTT] Requesting a presigned URL for S3");
@@ -420,7 +435,10 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         ESP_LOGI(TAG, "[MQTT] MQTT_EVENT_CONNECTED");
         esp_mqtt_client_publish(client, TOPIC_NAME_AWS_MESSSAGES, "Hello, World!", 0, 0, 0);
         
+        ESP_LOGI(TAG, "Subscribing to %s", TOPIC_NAME_AWS_CMD_SNAP);
         esp_mqtt_client_subscribe(client, TOPIC_NAME_AWS_CMD_SNAP, 0);
+        
+        ESP_LOGI(TAG, "Subscribing to %s", TOPIC_NAME_AWS_PRESIGNED_URL);
         esp_mqtt_client_subscribe(client, TOPIC_NAME_AWS_PRESIGNED_URL, 0);
         
         // This is the heartbeat task that will run in the background
@@ -492,16 +510,18 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 
 static void mqtt_app_start(void)
 {
-  const esp_mqtt_client_config_t mqtt_cfg = {
-    .broker.address.uri = CONFIG_EXAMPLE_AWS_IOT_URI,
-    .broker.verification.certificate = (const char *)server_cert_pem_start,
-    .credentials = {
-      .authentication = {
-        .certificate = (const char *)client_cert_pem_start,
-        .key = (const char *)client_key_pem_start,
-      },
-    }
-  };
+    char broker_address_uri[128];
+    sprintf(broker_address_uri, "mqtts://%s:8883", CONFIG_EXAMPLE_AWS_IOT_URI);
+      const esp_mqtt_client_config_t mqtt_cfg = {
+        .broker.address.uri = broker_address_uri,
+        .broker.verification.certificate = (const char *)server_cert_pem_start,
+        .credentials = {
+          .authentication = {
+            .certificate = (const char *)client_cert_pem_start,
+            .key = (const char *)client_key_pem_start,
+          },
+        }
+     };
 
     ESP_LOGI(TAG, "[APP] Free memory: %lu bytes", esp_get_free_heap_size());
     client = esp_mqtt_client_init(&mqtt_cfg);
@@ -516,6 +536,12 @@ void app_main(void)
     ESP_LOGI(TAG, "[APP] Startup..");
     ESP_LOGI(TAG, "[APP] Free memory: %lu bytes", esp_get_free_heap_size());
     ESP_LOGI(TAG, "[APP] IDF version: %s", esp_get_idf_version());
+    
+    save_mac_address(MAC_ADDRESS);      
+    ESP_LOGI(TAG, "MAC: %s", MAC_ADDRESS);
+    // Set topic for snap using the mac addres
+    sprintf(TOPIC_NAME_AWS_CMD_SNAP, "cmd/%s/snap",MAC_ADDRESS);
+    
 
     esp_log_level_set("*", ESP_LOG_INFO);
     esp_log_level_set("MQTT_CLIENT", ESP_LOG_VERBOSE);
