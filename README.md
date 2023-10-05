@@ -7,6 +7,15 @@ The easiest way to install the SDK is :
 - Install VSCode
 - Install the ESP extension, and configure the extension (seee the description [here](https://docs.espressif.com/projects/esp-idf/en/v4.2.3/esp32/get-started/vscode-setup.html))
 
+# Creating a Thing
+
+Open the AWS Console and go to **AWS IoT Core**. Select **Connect one device** and follow the instructions until you have downloaded a zip-archive called `connect_device_package.zip`. Unzip this archive in the `keys` folder and rename the following files:
+
+```
+cp *.cert.pem client.crt
+cp *.private.key client.key
+```
+
 # Building & Flashing
 
 After the tool is installed, you should be able to build the project. First, set the target. If you are using an ESP32-CAM, the CLI command is `idf.py set-target esp32 `. If you are in VSCode, you can also execute `ESP-IDF: set target device`. The shortcut to type in a command in VSCode is `CMD-Shift-P` on mac. On windows, it's `F1`. While you are at it, configure the serial port to use (this requires your device to be connected to the computer). This is only possible in VSCOde (`ESP-IDF: select port to use`). For the CLI you will need to add `--port ...` to the other commands.
