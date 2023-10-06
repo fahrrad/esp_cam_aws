@@ -58,11 +58,6 @@ struct presigned_url_post_parameters {
 // Topic name for the communication to AWS
 #define TOPIC_NAME_AWS_MESSSAGES "dt/snap/messages"
 
-// Topic that will receive a presigned URL to publish an image to 
-#define TOPIC_NAME_AWS_PRESIGNED_URL "cmd/snap/get-url/response"
-
-#define TOPIC_NAME_AWS_CMD_REQUEST_PRESIGNED_URL "cmd/snap/get-url/request"
-
 #define TOPIC_NAME_REKOGNIZE_REQUEST "cmd/snap/rekognize/request"
 
 // Topic name for sending heartbeat signal
@@ -155,6 +150,12 @@ char MAC_ADDRESS[20];
 // Topic for listening to SNAP commands
 char TOPIC_NAME_AWS_CMD_SNAP[64];
 
+// Topic to request a presigned URL
+char TOPIC_NAME_AWS_CMD_REQUEST_PRESIGNED_URL[64]; 
+
+
+char TOPIC_NAME_AWS_PRESIGNED_URL[64];
+
 // Hearthbeat task handler
 TaskHandle_t heartBeatTaskHandle = NULL;
 
@@ -177,7 +178,7 @@ void save_mac_address(char *mac_address) {
 
 void request_presigned_url() { 
     ESP_LOGI(TAG, "[MQTT] Requesting a presigned URL for S3");
-    esp_mqtt_client_publish(client, TOPIC_NAME_AWS_CMD_REQUEST_PRESIGNED_URL, "", 0, 0, 0);
+    esp_mqtt_client_publish(client, TOPIC_NAME_AWS_CMD_REQUEST_PRESIGNED_URL, "{}", 0, 0, 0);
 } 
 
 
@@ -542,6 +543,11 @@ void app_main(void)
     // Set topic for snap using the mac addres
     sprintf(TOPIC_NAME_AWS_CMD_SNAP, "cmd/%s/snap",MAC_ADDRESS);
     
+    // Set topic for presigned URL processing
+    sprintf(TOPIC_NAME_AWS_PRESIGNED_URL, "cmd/%s/snap/get-url/response", MAC_ADDRESS);
+    
+    // Set topic to request a presigned URL
+    sprintf(TOPIC_NAME_AWS_CMD_REQUEST_PRESIGNED_URL, "cmd/%s/snap/get-url/request",MAC_ADDRESS);
 
     esp_log_level_set("*", ESP_LOG_INFO);
     esp_log_level_set("MQTT_CLIENT", ESP_LOG_VERBOSE);
